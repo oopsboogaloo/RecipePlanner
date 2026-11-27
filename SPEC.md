@@ -16,6 +16,7 @@ tick-off. A Claude chat can create and alter recipes through a connector.
 | Running late | A Delay button shifts all remaining tasks and the serve time together |
 | Task content | Title, time, optional duration with end alert, notes, dish grouping |
 | Planthood | Recipes can be loaded from a Planthood recipe link, in the app or by Claude |
+| Target device | Samsung Galaxy Fold (Android, Chrome); must work folded and unfolded |
 | Hosting / access | Single Cloudflare Worker (free tier), access by secret link; no login screen |
 
 ## 2. Concepts
@@ -81,6 +82,29 @@ timestamps, so they are correct after a refresh, a closed tab or a phone restart
 Three screens, bottom-reachable controls, minimum 48 px touch targets,
 readable at arm's length, light and dark themes, no login.
 
+### 5.0 Layout on the Galaxy Fold
+The primary device is a Galaxy Fold, so the app has two layouts chosen by
+viewport width (not by device detection), switching live when the phone is
+opened or closed without losing scroll position, open sheets or timers:
+
+- **Narrow (cover screen, and any ordinary phone):** single column, as
+  described below. The cover screen is tall and narrow, so nothing may rely
+  on side-by-side controls.
+- **Wide (unfolded):** two panes.
+  - Cook: **Now** (due tasks and running timers, large) on the left; **Next
+    up** and **Done** on the right.
+  - Editor: timeline on the left; the selected task's details on the right
+    instead of a bottom sheet.
+  - Home: recipe list on the left; preview of the selected recipe on the right.
+- No interactive element sits across the centre fold line in the wide layout.
+- Optional enhancement: when the phone is half-folded and stood on a worktop,
+  put **Now** on the upright half and controls on the flat half, using
+  Chrome's Device Posture and Viewport Segments APIs
+  ([Chrome: foldable APIs](https://developer.chrome.com/blog/foldable-apis-ot)).
+  The app must work fully without these.
+- Exact breakpoints to be set by measuring the real device; both layouts are
+  tested in Chrome DevTools' Galaxy Z Fold profile and on the phone.
+
 ### 5.1 Recipes (home)
 - List of recipes: name, number of tasks, total length ("4 h 30 m").
 - If a cook is active: a prominent "Cooking now — next: Potatoes on in 12 min"
@@ -128,6 +152,9 @@ readable at arm's length, light and dark themes, no login.
   mid-cook, a "Tap to enable sound" bar appears until tapped.
 
 ### Platform constraints (checked November 2026)
+- On the target device (Android, Chrome) wake lock, sound and vibration
+  are all available. The iOS notes below matter only if the app is later
+  used on an iPhone.
 - Wake Lock works in Safari on iOS 16.4+, but in an app added to the home
   screen only from iOS 18.4 ([caniuse](https://caniuse.com/wake-lock),
   [WebKit bug 254545](https://bugs.webkit.org/show_bug.cgi?id=254545)).
@@ -316,7 +343,10 @@ Walk-through:
    are unaffected.
 6. From a Claude chat with the connector added, creating the Christmas roast
    and then changing one task is reflected in the app within 30 seconds.
-7. Pasting a Planthood recipe link produces an editable draft with one task
+7. On a Galaxy Fold, folding or unfolding mid-cook switches layout without
+   losing state, and the unfolded cook screen shows Now and Next up side by
+   side.
+8. Pasting a Planthood recipe link produces an editable draft with one task
    per step, stated cooking times captured as durations, and the original
    step text in the notes.
-8. The cook continues to alert correctly with the network disconnected.
+9. The cook continues to alert correctly with the network disconnected.
