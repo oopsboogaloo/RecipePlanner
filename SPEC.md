@@ -15,6 +15,7 @@ tick-off. A Claude chat can create and alter recipes through a connector.
 | Users / devices | One user, one phone |
 | Running late | A Delay button shifts all remaining tasks and the serve time together |
 | Task content | Title, time, optional duration with end alert, notes, dish grouping |
+| Planthood | Recipes can be loaded from a Planthood recipe link, in the app or by Claude |
 | Hosting / access | Single Cloudflare Worker (free tier), access by secret link; no login screen |
 
 ## 2. Concepts
@@ -33,6 +34,7 @@ tick-off. A Claude chat can create and alter recipes through a connector.
 ```
 Recipe
   id, name, description?, updatedAt
+  source?:   { kind: "planthood", url, title, importedAt }
   dishes[]:  id, name, colour
   tasks[]:   id, title, dishId?,
              startOffsetMin   // minutes BEFORE serve that the task starts (>= 0)
@@ -83,7 +85,8 @@ readable at arm's length, light and dark themes, no login.
 - List of recipes: name, number of tasks, total length ("4 h 30 m").
 - If a cook is active: a prominent "Cooking now — next: Potatoes on in 12 min"
   banner that returns to the Cook screen.
-- Actions: New recipe, open, duplicate, delete (with confirm).
+- Actions: New recipe, Import from Planthood, open, duplicate, delete (with
+  confirm).
 
 ### 5.2 Recipe editor
 - Name, description, dishes (name + colour).
@@ -170,6 +173,7 @@ Tools:
 | `add_tasks` / `update_task` / `delete_task` | Edit tasks; times given as minutes before serve |
 | `shift_tasks` | Move a dish's tasks (or all) earlier/later by N minutes |
 | `duplicate_recipe` / `delete_recipe` | Housekeeping |
+| `fetch_planthood_recipe` | Given a Planthood link, return its title and step text for Claude to turn into a timed recipe |
 | `get_active_cook` | Live status: serve time, what is due, running, done |
 | `update_active_cook` | Edit tasks of the live cook, or delay it by N minutes |
 
@@ -181,7 +185,57 @@ Rules:
   stay with the person in the kitchen.
 - `delete_recipe` is refused while that recipe has an active cook.
 
-## 9. Architecture
+## 9. Planthood import
+
+Planthood publishes its cooking instructions at `recipes.planthood.co.uk`
+([Planthood help: preparing your meals](https://planthood.gorgias.help/en-GB/how-to-prepare-your-meals-493357)).
+
+### What the source looks like (checked November 2026, 5 recipes from one menu)
+- The site is a public Shopify store; no login is needed. Each recipe is a
+  product, and the store's standard JSON view of a product or menu collection
+  returns the title and the method as HTML.
+- The method is a short intro line followed by "STEP 1", "STEP 2"... blocks
+  of free text. Step headings are not marked up consistently (some are
+  headings, some plain text).
+- **There are no structured timings.** Durations and oven temperatures only
+  appear inside the prose ("roast in the oven for 15 minutes", "simmer on low
+  for 5 minutes", "220°C / 200°C fan"). Recipes are short (4–5 steps).
+- This is not an official API and could change without notice.
+
+### In-app import
+1. Home → **Import from Planthood** → paste a recipe link (or use the phone's
+   share sheet / clipboard button).
+2. The server fetches that one recipe (the phone cannot, because of
+   cross-site browser rules) and builds a draft:
+   - one task per STEP, in order, with the full step text as the task's notes
+     and a short title taken from the first sentence;
+   - where a step states a time, the task gets that duration (the upper value
+     of a range, so "5-6 minutes" → 6);
+   - steps with no stated time get a default of 2 minutes of hands-on time;
+   - tasks are laid end to end and converted to "minutes before serve".
+3. The draft opens in the editor with a "Check timings" banner, since the
+   conversion is rule-based and will not spot steps that can overlap (e.g.
+   chopping while something roasts). Nothing is saved until confirmed.
+4. If the link cannot be read, the app says so and offers **Paste recipe
+   text** instead, which runs the same conversion on pasted text.
+
+### Import by Claude
+- "Load this Planthood recipe: <link>" → Claude calls
+  `fetch_planthood_recipe`, reads the steps, and calls `create_recipe` with a
+  properly overlapped timeline (preheat first, prep during cooking time).
+  This is the higher-quality route, because it understands the prose.
+- Claude can also combine several Planthood recipes into one cook with a
+  shared serve time.
+
+### Rules
+- Fetch only the single recipe the user asked for, on demand; no crawling or
+  bulk copying. Imported recipes keep a link back to the original page.
+- Only `recipes.planthood.co.uk` and `planthood.co.uk` links are accepted by
+  the fetcher.
+- Planthood's terms of use have not been reviewed; this is specified for
+  personal use of recipes the user has bought.
+
+## 10. Architecture
 
 - **One Cloudflare Worker** serving: the static web app, a small JSON API,
   and the MCP endpoint. Storage in Cloudflare D1 (two tables: recipes,
@@ -200,7 +254,7 @@ Rules:
   404. The secret can be rotated by redeploying with a new value. No personal
   data is stored beyond recipe text.
 
-## 10. Worked example — Christmas roast
+## 11. Worked example — Christmas roast
 
 Illustrative timings for a 5 kg turkey; to be adjusted to the actual bird and
 oven. Times are before serving.
@@ -239,7 +293,7 @@ Walk-through:
    time move to 15:15.
 6. All tasks ticked → cook finishes; the recipe is unchanged and reusable.
 
-## 11. Out of scope for v1
+## 12. Out of scope for v1
 
 - Push notifications / alerts while the phone is locked.
 - Multiple users, sharing, or multi-device live sync.
@@ -248,7 +302,7 @@ Walk-through:
 - Scaling recipes by servings or weight.
 - More than one active cook at a time.
 
-## 12. Acceptance criteria
+## 13. Acceptance criteria
 
 1. A recipe with 15+ tasks can be created and edited entirely on a phone,
    one-handed, with no horizontal scrolling.
@@ -262,4 +316,7 @@ Walk-through:
    are unaffected.
 6. From a Claude chat with the connector added, creating the Christmas roast
    and then changing one task is reflected in the app within 30 seconds.
-7. The cook continues to alert correctly with the network disconnected.
+7. Pasting a Planthood recipe link produces an editable draft with one task
+   per step, stated cooking times captured as durations, and the original
+   step text in the notes.
+8. The cook continues to alert correctly with the network disconnected.
