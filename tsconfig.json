@@ -9,7 +9,7 @@
     "jsx": "react-jsx",
     "jsxImportSource": "preact",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["@cloudflare/workers-types"]
+    "types": ["@cloudflare/workers-types", "node"]
   },
   "include": ["src", "test"]
 }

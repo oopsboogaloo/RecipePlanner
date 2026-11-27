@@ -79,7 +79,9 @@ e2e/          Playwright UI checks
 - [ ] 6 Install + polish — manifest and service worker are written but not
       yet exercised by a test; dark theme not yet reviewed on screen;
       half-folded "tabletop" layout (optional in the spec) not started
-- [ ] 7 Deploy (owner) — steps are in README.md
+- [ ] 7 Deploy — GitHub Actions workflow added (CI on pull requests, deploy
+      on `main`); not yet run against a real Cloudflare account. Owner adds
+      three repository secrets (README.md)
 
 ### Still to verify on the real phone
 
