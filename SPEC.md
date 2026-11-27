@@ -95,7 +95,7 @@ opened or closed without losing scroll position, open sheets or timers:
     up** and **Done** on the right.
   - Editor: timeline on the left; the selected task's details on the right
     instead of a bottom sheet.
-  - Home: recipe list on the left; preview of the selected recipe on the right.
+  - Home: recipes in two columns, one each side of the fold.
 - No interactive element sits across the centre fold line in the wide layout.
 - Optional enhancement: when the phone is half-folded and stood on a worktop,
   put **Now** on the upright half and controls on the flat half, using

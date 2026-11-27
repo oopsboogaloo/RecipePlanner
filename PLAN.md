@@ -70,10 +70,22 @@ e2e/          Playwright UI checks
 ## Status
 
 - [x] Specification merged to `main`
-- [ ] 1 Core
-- [ ] 2 Server
-- [ ] 3 Connector
-- [ ] 4 Web app: plan
-- [ ] 5 Web app: cook
-- [ ] 6 Install + polish
-- [ ] 7 Deploy (owner)
+- [x] 1 Core — 22 unit tests
+- [x] 2 Server — API, storage, Planthood fetcher
+- [x] 3 Connector — 13 tools, tested with an MCP client and over HTTP
+- [x] 4 Web app: plan — home, editor, task/dish sheets, Planthood import
+- [x] 5 Web app: cook — start flow, live screen, timers, delay, alerts,
+      offline queue
+- [ ] 6 Install + polish — manifest and service worker are written but not
+      yet exercised by a test; dark theme not yet reviewed on screen;
+      half-folded "tabletop" layout (optional in the spec) not started
+- [ ] 7 Deploy (owner) — steps are in README.md
+
+### Still to verify on the real phone
+
+- Sound volume and vibration pattern in a noisy kitchen.
+- Screen staying awake for a multi-hour cook.
+- Layout breakpoint (600 px) against the Fold's real folded/unfolded widths.
+- The connector from an actual Claude chat.
+- Planthood import from the deployed Worker (the local test Worker could not
+  reach the internet; the parser was checked against one real recipe).
