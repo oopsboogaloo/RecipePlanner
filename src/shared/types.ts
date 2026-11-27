@@ -53,16 +53,19 @@ export interface Cook {
   taskState: Record<string, TaskState>;
   /** Bumped on every server-side change. */
   rev: number;
+  /** Ids of recently applied operations, so a re-sent batch is not applied twice. */
+  applied?: string[];
 }
 
 /** Operations the phone sends during a cook. All carry the time they happened. */
-export type CookOp =
+export type CookOp = { id?: string } & (
   | { type: "tick"; taskId: string; at: number }
   | { type: "undo"; taskId: string; at: number }
   | { type: "delay"; minutes: number; at: number }
   | { type: "extend"; taskId: string; minutes: number; at: number }
   | { type: "finish"; at: number }
-  | { type: "abandon"; at: number };
+  | { type: "abandon"; at: number }
+);
 
 export interface AppState {
   recipes: Recipe[];

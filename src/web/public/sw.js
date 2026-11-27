@@ -1,4 +1,5 @@
 // Keeps the app shell available offline: network first, cached copy as fallback.
+// The page fills the cache on first load (see main.tsx); the cache name must match.
 const CACHE = "rp-shell-v1";
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));

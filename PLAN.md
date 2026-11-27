@@ -70,15 +70,15 @@ e2e/          Playwright UI checks
 ## Status
 
 - [x] Specification merged to `main`
-- [x] 1 Core — 22 unit tests
+- [x] 1 Core — unit tested
 - [x] 2 Server — API, storage, Planthood fetcher
 - [x] 3 Connector — 13 tools, tested with an MCP client and over HTTP
 - [x] 4 Web app: plan — home, editor, task/dish sheets, Planthood import
 - [x] 5 Web app: cook — start flow, live screen, timers, delay, alerts,
       offline queue
-- [ ] 6 Install + polish — manifest and service worker are written but not
-      yet exercised by a test; dark theme not yet reviewed on screen;
-      half-folded "tabletop" layout (optional in the spec) not started
+- [ ] 6 Install + polish — offline reopen after one visit is tested; dark
+      theme not yet reviewed on screen; half-folded "tabletop" layout
+      (optional in the spec) not started
 - [ ] 7 Deploy — GitHub Actions workflow added (CI on pull requests, deploy
       on `main`); not yet run against a real Cloudflare account. Owner adds
       three repository secrets (README.md)

@@ -231,6 +231,52 @@ try {
   await page.getByRole("button", { name: "Close" }).click();
   await context.close();
 
+  // ---------- finishing offline, then starting again ----------
+  console.log("Offline finish, then a new cook");
+  ({ context, page, errors } = await open(FOLDED));
+  await page.getByText("Boxing Day curry").click();
+  await page.getByRole("button", { name: "Start cooking" }).click();
+  await page.getByRole("button", { name: /Start — dinner at/ }).click();
+  await page.getByText(/^Serve /).waitFor();
+  await page.waitForTimeout(800);
+  await context.setOffline(true);
+  await page.getByRole("button", { name: "More" }).click();
+  await page.getByRole("button", { name: "Finish cook" }).click();
+  await page.getByRole("button", { name: "Finish", exact: true }).click();
+  await page.getByText("Christmas roast").first().click();
+  await page.getByRole("button", { name: "Start cooking" }).click();
+  await page.getByRole("button", { name: /Start — dinner at/ }).click();
+  await page.getByText(/^Serve /).waitFor();
+  await page.locator(".next-row").first().waitFor();
+  await context.setOffline(false);
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await page.waitForTimeout(1500);
+  const afterRestart = await (await fetch(`${APP}api/state`)).json();
+  check(afterRestart.cook?.name === "Christmas roast", "a cook started after finishing another offline survives reconnecting");
+  check(await page.getByText(/^Serve /).isVisible(), "the new cook is still on screen");
+  await page.getByRole("button", { name: "More" }).click();
+  await page.getByRole("button", { name: "Abandon cook" }).click();
+  await page.getByRole("button", { name: "Abandon", exact: true }).click();
+  await page.waitForTimeout(1200);
+  check(errors.length === 0, `no script errors${errors.length ? ": " + errors.join(" | ") : ""}`);
+  await context.close();
+
+  // ---------- installed app shell works offline after the very first visit ----------
+  console.log("Offline reopen");
+  {
+    const ctx = await browser.newContext({ viewport: FOLDED });
+    const p = await ctx.newPage();
+    await p.goto(APP);
+    await p.getByText("Christmas roast").first().waitFor();
+    await p.waitForFunction(async () => (await (await caches.open("rp-shell-v1")).keys()).length >= 4);
+    await ctx.setOffline(true);
+    await p.reload();
+    await p.getByText("Christmas roast").first().waitFor({ timeout: 5000 });
+    await p.getByText("Offline — saved on this phone").waitFor({ timeout: 5000 });
+    check(true, "app reopens offline after a single visit, showing saved recipes");
+    await ctx.close();
+  }
+
   // ---------- Planthood import (response mocked; parser is unit-tested) ----------
   console.log("Planthood import");
   ({ context, page, errors } = await open(FOLDED));

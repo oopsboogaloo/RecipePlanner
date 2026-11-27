@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { applyOp, replaceCookPlan, startCook as makeCook } from "../shared/cook";
+import { newId } from "../shared/timing";
 import type { Cook, CookOp, Dish, Recipe, Task } from "../shared/types";
 
 /** `/a/<secret>/` — everything the app talks to lives under it. */
@@ -22,7 +23,11 @@ interface Persisted {
   /** Cook operations not yet sent. */
   ops: CookOp[];
   cookUnsent: boolean;
-  planDirty: boolean;
+  /** Counts local edits to the live plan; `planSent` is the count last saved to the server. */
+  planRev: number;
+  planSent: number;
+  /** Operations for earlier cooks (typically their finish) that still need sending. */
+  outbox: { cookId: string; ops: CookOp[] }[];
   /** An imported recipe that has not been confirmed yet. Never synced. */
   draft: Recipe | null;
   /** Alerts acknowledged or already chimed, keyed `<cookId>:<taskId>:<kind>`. */
@@ -37,7 +42,7 @@ export interface State extends Persisted {
 }
 
 const blank: Persisted = {
-  recipes: [], cook: null, dirty: [], deleted: [], ops: [], cookUnsent: false, planDirty: false, draft: null, acks: {}, headsUp: true,
+  recipes: [], cook: null, dirty: [], deleted: [], ops: [], cookUnsent: false, planRev: 0, planSent: 0, outbox: [], draft: null, acks: {}, headsUp: true,
 };
 
 function load(): State {
@@ -106,20 +111,27 @@ export const setDraft = (draft: Recipe | null) => set({ draft });
 
 // ---------- cook ----------
 
+const planDirty = () => S.planRev !== S.planSent;
+const cleanCook = { ops: [], cookUnsent: false, planRev: 0, planSent: 0 } satisfies Partial<State>;
+
 export function startCook(recipe: Recipe, serveAt: number) {
-  set({ cook: makeCook(recipe, serveAt, Date.now()), ops: [], cookUnsent: true, planDirty: false, acks: {} });
+  // A previous cook finished while offline still has to be closed on the server
+  // first, or the server would refuse this one as a second active cook.
+  const outbox = S.cook && !S.cookUnsent && S.ops.length ? [...S.outbox, { cookId: S.cook.id, ops: S.ops }] : S.outbox;
+  set({ ...cleanCook, cook: makeCook(recipe, serveAt, Date.now()), cookUnsent: true, outbox, acks: {} });
   syncSoon(0);
 }
 
 export function cookOp(op: CookOp) {
   if (!S.cook) return;
-  set({ cook: applyOp(S.cook, op), ops: [...S.ops, op] });
+  const withId = { ...op, id: newId() };
+  set({ cook: applyOp(S.cook, withId), ops: [...S.ops, withId] });
   syncSoon(0);
 }
 
 export function editCookPlan(plan: { dishes: Dish[]; tasks: Task[] }) {
   if (!S.cook) return;
-  set({ cook: replaceCookPlan(S.cook, plan), planDirty: true });
+  set({ cook: replaceCookPlan(S.cook, plan), planRev: S.planRev + 1 });
   syncSoon();
 }
 
@@ -179,20 +191,26 @@ export async function sync(): Promise<void> {
       if (!res || ((res.status === 200 || res.status === 400) && unchanged)) set({ dirty: S.dirty.filter((d) => d !== id) });
       if (res?.status === 400) toast(`Could not save: ${res.data?.error}`, undefined, 8000);
     }
+    for (const item of [...S.outbox]) {
+      const res = await call("POST", "/cook/ops", item);
+      if (res.status !== 500) set({ outbox: S.outbox.filter((x) => x !== item) });
+    }
     if (S.cook && S.cookUnsent) {
       const res = await call("POST", "/cook", S.cook);
       if (res.status === 200) set({ cookUnsent: false });
       else if (res.status === 409) {
-        set({ cook: null, ops: [], cookUnsent: false, planDirty: false });
+        set({ ...cleanCook, cook: null });
         toast("Another cook was already in progress, so that one is shown instead.", undefined, 8000);
       } else if (res.status === 400) {
-        set({ cook: null, ops: [], cookUnsent: false, planDirty: false });
+        set({ ...cleanCook, cook: null });
         toast(`Could not start: ${res.data?.error}`, undefined, 8000);
       }
     }
-    if (S.cook && !S.cookUnsent && S.planDirty) {
+    if (S.cook && !S.cookUnsent && planDirty()) {
+      // Remember which edit was sent: one made while this request is in flight must still be saved.
+      const sent = S.planRev;
       const res = await call("PUT", "/cook/plan", { cookId: S.cook.id, dishes: S.cook.dishes, tasks: S.cook.tasks });
-      if (res.status !== 500) set({ planDirty: false });
+      if (res.status !== 500) set({ planSent: sent });
       if (res.status === 400) toast(`Could not save: ${res.data?.error}`, undefined, 8000);
     }
     if (S.cook && !S.cookUnsent && S.ops.length) {
@@ -220,7 +238,7 @@ function merge(serverRecipes: Recipe[], serverCook: Cook | null) {
   const recipes = serverRecipes.filter((r) => !keep.has(r.id) && !gone.has(r.id)).concat(S.recipes.filter((r) => keep.has(r.id)));
   recipes.sort((a, b) => a.name.localeCompare(b.name));
   const patch: Partial<State> = { recipes };
-  if (!S.cookUnsent && !S.planDirty && !S.ops.length) {
+  if (!S.cookUnsent && !planDirty() && !S.ops.length) {
     const prev = activeCook(S);
     if (prev && serverCook && prev.id === serverCook.id && prev.rev !== serverCook.rev) {
       if (JSON.stringify(prev.tasks) !== JSON.stringify(serverCook.tasks) || prev.serveAt !== serverCook.serveAt) toast("Plan updated");

@@ -6,7 +6,11 @@ export interface Store {
   putRecipe(r: Recipe): Promise<void>;
   deleteRecipe(id: string): Promise<void>;
   getActiveCook(): Promise<Cook | null>;
-  putCook(c: Cook): Promise<void>;
+  /**
+   * Saves a cook. With `expectedRev`, only if the stored cook still has that
+   * revision; returns false when someone else changed it first.
+   */
+  putCook(c: Cook, expectedRev?: number): Promise<boolean>;
 }
 
 export class MemoryStore implements Store {
@@ -27,8 +31,10 @@ export class MemoryStore implements Store {
   async getActiveCook() {
     return structuredClone([...this.cooks.values()].find((c) => c.status === "active") ?? null);
   }
-  async putCook(c: Cook) {
+  async putCook(c: Cook, expectedRev?: number) {
+    if (expectedRev !== undefined && this.cooks.get(c.id)?.rev !== expectedRev) return false;
     this.cooks.set(c.id, structuredClone(c));
+    return true;
   }
 }
 
@@ -41,7 +47,7 @@ export class D1Store implements Store {
     schemaReady ??= this.db
       .batch([
         this.db.prepare("CREATE TABLE IF NOT EXISTS recipes (id TEXT PRIMARY KEY, body TEXT NOT NULL, updated_at INTEGER NOT NULL)"),
-        this.db.prepare("CREATE TABLE IF NOT EXISTS cooks (id TEXT PRIMARY KEY, status TEXT NOT NULL, body TEXT NOT NULL, updated_at INTEGER NOT NULL)"),
+        this.db.prepare("CREATE TABLE IF NOT EXISTS cooks (id TEXT PRIMARY KEY, status TEXT NOT NULL, rev INTEGER NOT NULL, body TEXT NOT NULL, updated_at INTEGER NOT NULL)"),
       ])
       .catch((e) => {
         schemaReady = undefined;
@@ -78,11 +84,19 @@ export class D1Store implements Store {
       .first<{ body: string }>();
     return row ? (JSON.parse(row.body) as Cook) : null;
   }
-  async putCook(c: Cook) {
+  async putCook(c: Cook, expectedRev?: number) {
     await this.ready();
-    await this.db
-      .prepare("INSERT INTO cooks (id, status, body, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(id) DO UPDATE SET status = ?2, body = ?3, updated_at = ?4")
-      .bind(c.id, c.status, JSON.stringify(c), Date.now())
+    if (expectedRev === undefined) {
+      await this.db
+        .prepare("INSERT INTO cooks (id, status, rev, body, updated_at) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(id) DO UPDATE SET status = ?2, rev = ?3, body = ?4, updated_at = ?5")
+        .bind(c.id, c.status, c.rev, JSON.stringify(c), Date.now())
+        .run();
+      return true;
+    }
+    const res = await this.db
+      .prepare("UPDATE cooks SET status = ?2, rev = ?3, body = ?4, updated_at = ?5 WHERE id = ?1 AND rev = ?6")
+      .bind(c.id, c.status, c.rev, JSON.stringify(c), Date.now(), expectedRev)
       .run();
+    return res.meta.changes > 0;
   }
 }

@@ -8,6 +8,8 @@ import type { Store } from "./store";
 export class NotFoundError extends Error {}
 export class ConflictError extends Error {}
 
+const MAX_REMEMBERED_OPS = 1000;
+
 export class Service {
   constructor(
     public store: Store,
@@ -77,26 +79,47 @@ export class Service {
     return cook;
   }
 
+  /**
+   * Read-change-write on the live cook. The write only succeeds if nobody else
+   * changed the cook in between; otherwise the change is re-applied to the
+   * fresh copy, so a tick and a plan edit arriving together both survive.
+   */
+  private async mutateCook(cookId: string | undefined, change: (cook: Cook) => Cook): Promise<Cook> {
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const cook = await this.activeCook(cookId);
+      const next = { ...change(cook), rev: cook.rev + 1 };
+      if (await this.store.putCook(next, cook.rev)) return next;
+    }
+    throw new ConflictError("The cook is being changed by something else; try again.");
+  }
+
   async cookOps(cookId: string, ops: CookOp[]): Promise<Cook> {
-    let cook = await this.activeCook(cookId);
     if (!Array.isArray(ops) || ops.length > 500) throw new ValidationError("bad operations");
     for (const op of ops) {
       if (!op || typeof op.type !== "string" || !Number.isFinite(op.at)) throw new ValidationError("bad operation");
       if ((op.type === "delay" || op.type === "extend") && !Number.isFinite(op.minutes)) throw new ValidationError("bad operation");
-      cook = applyOp(cook, op);
     }
-    cook = { ...cook, rev: cook.rev + 1 };
-    await this.store.putCook(cook);
-    return cook;
+    return this.mutateCook(cookId, (cook) => {
+      // The phone re-sends a batch if it never saw our reply; skip what was already applied.
+      const applied = new Set(cook.applied ?? []);
+      const order = [...(cook.applied ?? [])];
+      for (const op of ops) {
+        if (typeof op.id === "string") {
+          if (applied.has(op.id)) continue;
+          applied.add(op.id);
+          order.push(op.id.slice(0, 40));
+        }
+        cook = applyOp(cook, op);
+      }
+      return { ...cook, applied: order.slice(-MAX_REMEMBERED_OPS) };
+    });
   }
 
   /** Replace the live cook's dishes and tasks, keeping tick state. */
   async updateCookPlan(plan: { dishes: unknown; tasks: unknown }, cookId?: string): Promise<Cook> {
-    const cook = await this.activeCook(cookId);
-    const clean = cleanRecipe({ id: cook.recipeId, name: cook.name, dishes: plan.dishes, tasks: plan.tasks });
-    const next = { ...replaceCookPlan(cook, clean), rev: cook.rev + 1 };
-    await this.store.putCook(next);
-    return next;
+    const first = await this.activeCook(cookId);
+    const clean = cleanRecipe({ id: first.recipeId, name: first.name, dishes: plan.dishes, tasks: plan.tasks });
+    return this.mutateCook(cookId, (cook) => replaceCookPlan(cook, clean));
   }
 
   async fetchPlanthood(link: string): Promise<PlanthoodRecipe> {

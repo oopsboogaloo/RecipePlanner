@@ -57,6 +57,42 @@ describe("api", () => {
     expect((await api("GET", "/state")).body.cook).toBeNull();
     expect((await api("POST", "/cook/ops", { cookId: cook.id, ops: [] })).status).toBe(404);
   });
+  it("does not apply a re-sent batch of operations twice", async () => {
+    const r = christmasRoast(T0);
+    const cook = await svc.startCook(startCook(r, serveAtForStart(r, T0), T0));
+    const ops = [
+      { id: "a", type: "tick", taskId: "t3", at: T0 },
+      { id: "b", type: "delay", minutes: 15, at: T0 },
+      { id: "c", type: "extend", taskId: "t3", minutes: 5, at: T0 },
+    ];
+    const first = (await api("POST", "/cook/ops", { cookId: cook.id, ops })).body;
+    // The reply was lost, so the phone sends the same batch again, plus one new operation.
+    const again = (await api("POST", "/cook/ops", { cookId: cook.id, ops: [...ops, { id: "d", type: "tick", taskId: "t1", at: T0 }] })).body;
+    expect(again.taskState.t3).toEqual(first.taskState.t3);
+    expect(again.taskState.t3.status).toBe("running");
+    expect(again.serveAt).toBe(cook.serveAt + 15 * MIN);
+    expect(again.taskState.t1.status).toBe("done");
+  });
+  it("keeps a tick that lands while a plan edit is being saved", async () => {
+    const r = christmasRoast(T0);
+    const store = svc.store as MemoryStore;
+    const cook = await svc.startCook(startCook(r, serveAtForStart(r, T0), T0));
+    // Make the phone's tick arrive between the plan edit's read and its write.
+    const put = store.putCook.bind(store);
+    let raced = false;
+    store.putCook = async (c, expected) => {
+      if (!raced && expected !== undefined) {
+        raced = true;
+        await svc.cookOps(cook.id, [{ id: "x", type: "tick", taskId: "t1", at: T0 }]);
+      }
+      return put(c, expected);
+    };
+    const edited = await svc.updateCookPlan({ dishes: r.dishes, tasks: r.tasks.filter((t) => t.id !== "t18") }, cook.id);
+    expect(raced).toBe(true);
+    expect(edited.tasks).toHaveLength(17);
+    expect(edited.taskState.t1.status).toBe("done");
+    expect((await svc.state()).cook!.taskState.t1.status).toBe("done");
+  });
   it("imports a Planthood link as a draft and only fetches Planthood", async () => {
     const ok = await api("POST", "/planthood", { url: "https://recipes.planthood.co.uk/collections/menu/products/squash-bowl?variant=1" });
     expect(ok.body.recipe.tasks.map((t: any) => [t.startOffsetMin, t.durationMin])).toEqual([[22, 20], [2, undefined]]);

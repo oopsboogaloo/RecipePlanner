@@ -112,4 +112,17 @@ function App() {
 
 render(<App />, document.getElementById("app")!);
 startSync();
-if ("serviceWorker" in navigator && BASE !== "/") void navigator.serviceWorker.register(`${BASE}sw.js`, { scope: BASE }).catch(() => {});
+if ("serviceWorker" in navigator && BASE !== "/") {
+  void navigator.serviceWorker
+    .register(`${BASE}sw.js`, { scope: BASE })
+    .then(() => navigator.serviceWorker.ready)
+    .then(async () => {
+      // This page and its files loaded before the service worker existed, so
+      // store them now; otherwise the app could not reopen offline until a
+      // second online visit.
+      const files = [...document.querySelectorAll<HTMLScriptElement | HTMLLinkElement>("script[src], link[rel=stylesheet]")].map((el) => ("src" in el ? el.src : el.href));
+      const cache = await caches.open("rp-shell-v1");
+      await cache.addAll([BASE, `${BASE}manifest.webmanifest`, "/icon.svg", ...files]);
+    })
+    .catch(() => {});
+}
